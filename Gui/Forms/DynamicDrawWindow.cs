@@ -1,5 +1,6 @@
 ﻿using DynamicDraw.Abr;
 using DynamicDraw.Gui;
+using DynamicDraw.Imaging;
 using DynamicDraw.Interop;
 using DynamicDraw.Localization;
 using DynamicDraw.Logic;
@@ -8,6 +9,7 @@ using DynamicDraw.TabletSupport;
 using PaintDotNet;
 using PaintDotNet.AppModel;
 using PaintDotNet.Effects;
+using PaintDotNet.Imaging;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -21,12 +23,15 @@ using System.Security;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
+using GdipPixelFormat = System.Drawing.Imaging.PixelFormat;
+using InteropBitmap = DynamicDraw.Imaging.InteropBitmap;
+
 namespace DynamicDraw
 {
     /// <summary>
     /// The dialog used for working with the effect.
     /// </summary>
-    public class WinDynamicDraw : EffectConfigDialog
+    public class WinDynamicDraw : EffectConfigForm2
     {
         #region Fields (Non Gui)
         #region Bitmaps
@@ -60,7 +65,7 @@ namespace DynamicDraw
         /// <summary>
         /// Stores the current drawing in full.
         /// </summary>
-        private Bitmap bmpCommitted = new Bitmap(1, 1, PixelFormat.Format32bppPArgb);
+        private InteropBitmap<ColorBgra32> bmpCommitted = new InteropBitmap<ColorBgra32>(1, 1);
 
         /// <summary>
         /// Stores the current brush stroke. This bitmap is drawn to for all brush strokes, then
@@ -68,13 +73,13 @@ namespace DynamicDraw
         /// a staging layer enables layer-like opacity and all the blend modes that aren't normal
         /// or overwrite mode. These effects are performed during draw & when committing.
         /// </summary>
-        private Bitmap bmpStaged = new Bitmap(1, 1, PixelFormat.Format32bppPArgb);
+        private Bitmap bmpStaged = new Bitmap(1, 1, GdipPixelFormat.Format32bppPArgb);
 
         /// <summary>
         /// Stores the merged image of the staged + committed bitmaps. This is used only when drawing the canvas
         /// visually for the user, because freeing & allocating this memory repeatedly would be extremely slow.
         /// </summary>
-        private Bitmap bmpMerged = new Bitmap(1, 1, PixelFormat.Format32bppPArgb);
+        private Bitmap bmpMerged = new Bitmap(1, 1, GdipPixelFormat.Format32bppPArgb);
         #endregion
 
         #region Brush Image Loading
@@ -116,7 +121,7 @@ namespace DynamicDraw
         /// <summary>
         /// Contains the list of all available effects to use while drawing.
         /// </summary>
-        private readonly BindingList<Tuple<string, IEffectInfo>> effectOptions;
+        private readonly BindingList<Tuple<string, IEffectInfo2>> effectOptions;
 
         /// <summary>
         /// The list of palettes, with the filename (no file extension) as the key, and the path to the file, including
@@ -643,9 +648,9 @@ namespace DynamicDraw
             cmbxSymmetry.ValueMember = "Item2";
 
             // Fetches and populates the available effects for the effect chooser combobox.
-            effectOptions = new BindingList<Tuple<string, IEffectInfo>>()
+            effectOptions = new BindingList<Tuple<string, IEffectInfo2>>()
             {
-                new Tuple<string, IEffectInfo>(Strings.EffectDefaultNone, null)
+                new Tuple<string, IEffectInfo2>(Strings.EffectDefaultNone, null)
             };
 
             cmbxChosenEffect.DisplayMember = "Item1";
@@ -710,7 +715,7 @@ namespace DynamicDraw
         /// <c>true</c> to release both managed and unmanaged resources;
         /// <c>false</c> to release only unmanaged resources.
         /// </param>
-        protected override void Dispose(bool disposing)
+        protected override void OnDispose(bool disposing)
         {
             if (disposing)
             {
@@ -751,23 +756,23 @@ namespace DynamicDraw
                 SemanticTheme.Instance?.Dispose();
             }
 
-            base.Dispose(disposing);
+            base.OnDispose(disposing);
         }
 
         /// <summary>
         /// Configures settings so they can be stored between consecutive
         /// calls of the effect.
         /// </summary>
-        protected override void InitialInitToken()
+        protected override EffectConfigToken OnCreateInitialToken()
         {
-            theEffectToken = new PersistentSettings();
+            return new PersistentSettings();
         }
 
         /// <summary>
         /// Sets up the GUI to reflect the previously-used settings; i.e. this
         /// loads the settings. Called twice by a quirk of Paint.NET.
         /// </summary>
-        protected override void InitDialogFromToken(EffectConfigToken effectToken)
+        protected override void OnUpdateDialogFromToken(EffectConfigToken effectToken)
         {
             // Copies GUI values from the settings.
             PersistentSettings token = (PersistentSettings)effectToken;
@@ -788,7 +793,7 @@ namespace DynamicDraw
             // Fetches and populates the available effects for the effect chooser combobox.
             if (effectOptions.Count == 1)
             {
-                IEffectsService effectsService = Services?.GetService<IEffectsService>();
+                IEffectsService2 effectsService = Services?.GetService<IEffectsService2>();
 
                 if (effectsService != null)
                 {
@@ -797,7 +802,7 @@ namespace DynamicDraw
                         .OrderByDescending((effect) => effect.IsBuiltIn)
                         .ThenBy((effect) => effect.Name);
 
-                    foreach (IEffectInfo effectInfo in effectInfos)
+                    foreach (IEffectInfo2 effectInfo in effectInfos)
                     {
                         // No reason to use this plugin inside itself and reusing shared state causes it to crash.
                         if (effectInfo.Name == EffectPlugin.StaticName)
@@ -814,7 +819,7 @@ namespace DynamicDraw
 
                         if (effectInfo.Category != EffectCategory.DoNotDisplay)
                         {
-                            effectOptions.Add(new Tuple<string, IEffectInfo>(effectInfo.Name, effectInfo));
+                            effectOptions.Add(new Tuple<string, IEffectInfo2>(effectInfo.Name, effectInfo));
                         }
                     }
                 }
@@ -832,9 +837,9 @@ namespace DynamicDraw
         /// Overwrites the settings with the dialog's current settings so they
         /// can be reused later; i.e. this saves the settings.
         /// </summary>
-        protected override void InitTokenFromDialog()
+        protected override void OnUpdateTokenFromDialog(EffectConfigToken dstToken)
         {
-            PersistentSettings token = (PersistentSettings)EffectToken;
+            PersistentSettings token = (PersistentSettings)dstToken;
             token.UserSettings = UserSettings;
             token.CustomShortcuts = KeyboardShortcuts;
             token.CustomBrushLocations = loadedBrushImagePaths;
@@ -892,17 +897,15 @@ namespace DynamicDraw
         /// <summary>
         /// Configures the drawing area and loads text localizations.
         /// </summary>
-        protected override void OnLoad(EventArgs e)
+        protected override void OnLoaded()
         {
-            base.OnLoad(e);
-
             //Sets the sizes of the canvas and drawing region.
-            canvas.width = EnvironmentParameters.SourceSurface.Size.Width;
-            canvas.height = EnvironmentParameters.SourceSurface.Size.Height;
+            canvas.width = Environment.Document.Size.Width;
+            canvas.height = Environment.Document.Size.Height;
 
-            bmpCommitted = DrawingUtils.CreateBitmapFromSurface(EnvironmentParameters.SourceSurface);
-            bmpStaged = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, PixelFormat.Format32bppPArgb);
-            bmpMerged = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, PixelFormat.Format32bppPArgb);
+            bmpCommitted = InteropBitmap.CopyFrom(Environment.GetSourceBitmapBgra32());
+            bmpStaged = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, GdipPixelFormat.Format32bppPArgb);
+            bmpMerged = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, GdipPixelFormat.Format32bppPArgb);
 
             // Applies the effect chosen to be used if the user set one the last time they used the plugin.
             if (effectToDraw?.Effect != null)
@@ -911,8 +914,8 @@ namespace DynamicDraw
             }
 
             symmetryOrigin = new PointF(
-                EnvironmentParameters.SourceSurface.Width / 2f,
-                EnvironmentParameters.SourceSurface.Height / 2f);
+                Environment.Document.Size.Width / 2f,
+                Environment.Document.Size.Height / 2f);
 
             //Sets the canvas dimensions.
             canvas.x = (displayCanvas.Width - canvas.width) / 2;
@@ -947,6 +950,8 @@ namespace DynamicDraw
             bttnSaveBrush.Text = Strings.SaveNewBrush;
 
             pluginHasLoaded = true;
+
+            base.OnLoaded();
         }
 
         /// <summary>
@@ -1170,14 +1175,18 @@ namespace DynamicDraw
             // Loads the default palette for empty paths. It will fail silently if the plugin hasn't loaded.
             if (type == PaletteSpecialType.Current)
             {
-                IPalettesService palettesService = (IPalettesService)Services?.GetService(typeof(IPalettesService));
+                IUserPalettesService palettesService = Services?.GetService<IUserPalettesService>();
 
                 if (palettesService != null)
                 {
+                    IManagedColorList currentPalette = palettesService.Current;
+
                     List<Color> paletteColors = new List<Color>();
-                    for (int i = 0; i < palettesService.CurrentPalette.Count && i < ColorUtils.MaxPaletteSize; i++)
+                    for (int i = 0; i < currentPalette.Count && i < ColorUtils.MaxPaletteSize; i++)
                     {
-                        paletteColors.Add((Color)palettesService.CurrentPalette[i]);
+                        ManagedColor currentColorM = currentPalette[i];
+                        SrgbColorA currentColor = currentColorM.GetSrgb();
+                        paletteColors.Add(currentColor);
                     }
 
                     paletteSelectedSwatchIndex = -1;
@@ -1308,8 +1317,8 @@ namespace DynamicDraw
             // Sets some surfaces & ensures the source surface is exact.
             if (effectToDraw.SrcArgs == null)
             {
-                Surface fromStagedSurf = Surface.CopyFromBitmap(bmpCommitted);
-                Surface fromCommittedSurf = Surface.CopyFromBitmap(bmpCommitted);
+                Surface fromStagedSurf = Surface.CopyFromBitmap(bmpCommitted.AsGdipBitmap());
+                Surface fromCommittedSurf = Surface.CopyFromBitmap(bmpCommitted.AsGdipBitmap());
                 RenderArgs fromStaged = new RenderArgs(fromStagedSurf);
                 RenderArgs fromCommitted = new RenderArgs(fromCommittedSurf);
                 effectToDraw.SrcArgs = fromCommitted;
@@ -1317,10 +1326,13 @@ namespace DynamicDraw
             }
             else
             {
-                effectToDraw.DstArgs.Surface.CopyFromGdipBitmap(bmpCommitted);
-                effectToDraw.SrcArgs.Surface.CopyFromGdipBitmap(bmpCommitted);
+                effectToDraw.DstArgs.Surface.CopyFromGdipBitmap(bmpCommitted.AsGdipBitmap());
+                effectToDraw.SrcArgs.Surface.CopyFromGdipBitmap(bmpCommitted.AsGdipBitmap());
             }
 
+            // TODO
+            /*
+            // TODO: Cannot re-set IEffect.Environment. Must recreate via IEffectInfo2.CreateInstance(IServiceProvider, IEffectEnvironment)
             var envParams = effectToDraw.Effect.EnvironmentParameters;
             effectToDraw.Effect.EnvironmentParameters = effectToDraw.Effect.EnvironmentParameters
                 .CloneWithDifferentSourceSurface(effectToDraw.SrcArgs.Surface);
@@ -1338,12 +1350,14 @@ namespace DynamicDraw
             }
             catch
             {
+                // TODO: catch the exception and use IExceptionDialogService
                 ThemedMessageBox.Show(Strings.EffectFailedToWorkError);
                 currentKeysPressed.Clear(); // modal dialogs leave key-reading in odd states. Clears it.
                 cmbxChosenEffect.SelectedIndex = 0; // corresponds to no effect chosen.
                 isPreviewingEffect = (false, false);
                 return false;
             }
+            */
 
             DrawingUtils.OverwriteBits(effectToDraw.DstArgs.Bitmap, bmpStaged);
             return true;
@@ -1393,9 +1407,17 @@ namespace DynamicDraw
                 return;
             }
 
+            // Create new environment
+            IEffectEnvironment2 effectEnvironment = this.Environment
+                .CloneWithNewUserColors(
+                    ManagedColor.Create((SrgbColorA)menuActiveColors.Swatches[0]),
+                    ManagedColor.Create((SrgbColorA)menuActiveColors.Swatches[1]))
+                .CloneWithNewBrushSize(sliderBrushSize.Value)
+                .CloneWithNewSource(bmpCommitted); 
+
             // Instantiates the effect and prepares all metadata for it.
             var effectInfo = effectOptions[cmbxChosenEffect.SelectedIndex].Item2;
-            effectToDraw.Effect = effectInfo.CreateInstance();
+            effectToDraw.Effect = effectInfo.CreateInstance(this.Services, effectEnvironment);
             effectToDraw.SrcArgs = null;
             effectToDraw.DstArgs = null;
 
@@ -1405,6 +1427,7 @@ namespace DynamicDraw
                 effectToDraw.PropertySettings = restoreEffect.PropertySettings;
             }
 
+            // TODO: not sure how this could be null? CreateInstance() does not return null
             if (effectToDraw.Effect == null)
             {
                 ThemedMessageBox.Show(Strings.EffectFailedToWorkError);
@@ -1413,20 +1436,11 @@ namespace DynamicDraw
                 return;
             }
 
-            bool isEffectPropertyBased = effectToDraw.Effect is PropertyBasedEffect;
-            bool isEffectConfigurable = effectToDraw.Effect.Options.Flags.HasFlag(EffectFlags.Configurable);
+            bool isEffectPropertyBased = effectToDraw.Effect is PropertyBasedEffect; // TODO: This will not work. Need to detect by looking at the initial Token on the IEffectConfigForm to see if it's a PropertyBasedEffectConfigToken
+            bool isEffectConfigurable = effectToDraw.Effect.Options.IsConfigurable;
 
             bttnChooseEffectSettings.Enabled = isEffectConfigurable;
             UpdateEnabledControls();
-
-            effectToDraw.Effect.Services = Services;
-            effectToDraw.Effect.EnvironmentParameters = new EffectEnvironmentParameters(
-                menuActiveColors.Swatches[0],
-                menuActiveColors.Swatches[1],
-                sliderBrushSize.Value,
-                EnvironmentParameters.DocumentResolution,
-                new PdnRegion(EnvironmentParameters.GetSelectionAsPdnRegion().GetRegionData()),
-                Surface.CopyFromBitmap(bmpCommitted));
 
             // Applies the restored effect immediately under current settings without previewing.
             if (restoreEffect != null && !previewRestoredEffect)
@@ -1439,7 +1453,7 @@ namespace DynamicDraw
             if (restoreEffect == null)
             {
                 effectToDraw.PropertySettings = isEffectPropertyBased
-                    ? ((PropertyBasedEffect)effectToDraw.Effect).CreatePropertyCollection()
+                    ? ((PropertyBasedEffect)effectToDraw.Effect).CreatePropertyCollection() // TODO: Will not work. Cannot cast IEffect to a concrete class like this. 
                     : null;
             }
 
@@ -1456,8 +1470,9 @@ namespace DynamicDraw
             try
             {
                 using Timer repaintTimer = new Timer() { Interval = 150, Enabled = false };
-                using EffectConfigDialog dialog = effectToDraw.Effect.CreateConfigDialog();
+                using IEffectConfigForm dialog = effectToDraw.Effect.CreateConfigForm();
 
+                // TODO: it won't be null, we'll get an exception instead, which we can show with IExceptionDialogService
                 if (dialog == null)
                 {
                     ThemedMessageBox.Show(Strings.EffectFailedToWorkError);
@@ -1465,18 +1480,18 @@ namespace DynamicDraw
                     return;
                 }
 
-                dialog.Effect = effectToDraw.Effect;
+                dialog.SetEffect(effectToDraw.Effect);
 
                 if (isEffectPropertyBased)
                 {
-                    dialog.EffectToken = new PropertyBasedEffectConfigToken(effectToDraw.PropertySettings);
+                    dialog.Token = new PropertyBasedEffectConfigToken(effectToDraw.PropertySettings);
                 }
 
-                effectToDraw.Settings = dialog.EffectToken;
+                effectToDraw.Settings = dialog.Token;
 
                 // Reset/start a short delay before refreshing the effect preview.
                 // Delays until a short duration passes without changing the UI.
-                dialog.EffectTokenChanged += (a, b) =>
+                dialog.TokenChanged += (a, b) =>
                 {
                     repaintTimer.Stop();
                     repaintTimer.Start();
@@ -1487,7 +1502,7 @@ namespace DynamicDraw
                 {
                     repaintTimer.Stop();
 
-                    bool effectSuccessfullyExecuted = ActiveEffectRender(dialog.EffectToken);
+                    bool effectSuccessfullyExecuted = ActiveEffectRender(dialog.Token);
                     if (!effectSuccessfullyExecuted)
                     {
                         ThemedMessageBox.Show(Strings.EffectFailedToWorkError);
@@ -1500,28 +1515,27 @@ namespace DynamicDraw
 
                 isPreviewingEffect.settingsOpen = true;
 
-                dialog.Owner = this;
-                var dlgResult = dialog.ShowDialog();
+                var dlgResult = dialog.ShowDialog(this);
                 currentKeysPressed.Clear(); // avoids issues with key interception from the dialog.
 
                 if (repaintTimer.Enabled)
                 {
                     repaintTimer.Stop();
-                    bool effectSuccessfullyExecuted = ActiveEffectRender(dialog.EffectToken);
+                    bool effectSuccessfullyExecuted = ActiveEffectRender(dialog.Token);
                     if (!effectSuccessfullyExecuted)
                     {
                         ThemedMessageBox.Show(Strings.EffectFailedToWorkError);
                         currentKeysPressed.Clear(); // modal dialogs leave key-reading in odd states. Clears it.
-                        dialog.Close();
+                        dialog.Close(); 
                     }
                 }
 
                 if (isEffectPropertyBased)
                 {
-                    effectToDraw.PropertySettings = (dialog.EffectToken as PropertyBasedEffectConfigToken)?.Properties;
+                    effectToDraw.PropertySettings = (dialog.Token as PropertyBasedEffectConfigToken)?.Properties;
                 }
 
-                effectToDraw.Settings = dialog.EffectToken;
+                effectToDraw.Settings = dialog.Token;
 
                 isPreviewingEffect = (false, false);
                 displayCanvas.Refresh();
@@ -1664,7 +1678,7 @@ namespace DynamicDraw
                 string path = tempDir.GetTempPathName("HistoryBmp" + undoHistory.Count + ".undo");
 
                 //Saves the drawing to the file and saves the file path.
-                bmpCommitted.Save(path);
+                bmpCommitted.AsGdipBitmap().Save(path);
                 undoHistory.Push(path);
                 if (!menuUndo.Enabled)
                 {
@@ -1912,34 +1926,30 @@ namespace DynamicDraw
                     // Sets HSV color jitter.
                     if (jitterHsv)
                     {
-                        HsvColor colorHsv = new RgbColor((int)(newRed * 255f), (int)(newGreen * 255f), (int)(newBlue * 255f))
+                        ColorHsv96Float colorHsv = new ColorRgb96Float(newRed, newGreen, newBlue * 255f)
                             .ToHsv();
 
-                        int newHue = Math.Clamp(colorHsv.Hue
+                        float newHue = Math.Clamp(colorHsv.Hue
                             - random.Next((int)(finalJitterMinHue * 3.6f))
                             + random.Next((int)(finalJitterMaxHue * 3.6f)), 0, 360);
 
-                        int newSat = Math.Clamp(colorHsv.Saturation
+                        float newSat = Math.Clamp(colorHsv.Saturation
                             - random.Next(finalJitterMinSat)
                             + random.Next(finalJitterMaxSat), 0, 100);
 
-                        int newVal = Math.Clamp(colorHsv.Value
+                        float newVal = Math.Clamp(colorHsv.Value
                             - random.Next(finalJitterMinVal)
                             + random.Next(finalJitterMaxVal), 0, 100);
 
-                        Color finalColor = new HsvColor(newHue, newSat, newVal).ToColor();
+                        ColorRgb96Float finalColor = new ColorHsv96Float(newHue, newSat, newVal).ToRgb();
 
-                        newRed = finalColor.R / 255f;
-                        newGreen = finalColor.G / 255f;
-                        newBlue = finalColor.B / 255f;
+                        newRed = finalColor.R;
+                        newGreen = finalColor.G;
+                        newBlue = finalColor.B;
                     }
 
                     recolorMatrix = DrawingUtils.ColorImageAttr(newRed, newGreen, newBlue, newAlpha);
-                    adjustedColor = ColorBgra.FromBgra(
-                        (byte)Math.Round(newBlue * 255),
-                        (byte)Math.Round(newGreen * 255),
-                        (byte)Math.Round(newRed * 255),
-                        (byte)Math.Round(newAlpha * 255));
+                    adjustedColor = ColorBgra32.Round(new ColorRgba128Float(newRed, newGreen, newBlue, newAlpha));
                 }
             }
             #endregion
@@ -1962,10 +1972,10 @@ namespace DynamicDraw
             if (drawToStagedBitmap && !isUserDrawing.stagedChanged)
             {
                 isUserDrawing.stagedChanged = true;
-                DrawingUtils.OverwriteBits(bmpCommitted, bmpMerged);
+                DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpMerged);
             }
 
-            Bitmap bmpToDrawOn = drawToStagedBitmap ? bmpStaged : bmpCommitted;
+            Bitmap bmpToDrawOn = drawToStagedBitmap ? bmpStaged : bmpCommitted.AsGdipBitmap();
 
             // Sets the source bitmap/surface for masked drawing based on the tool.
             (Surface surface, Bitmap bmp) maskedDrawSource = (null, null);
@@ -2096,7 +2106,7 @@ namespace DynamicDraw
 
                                     DrawingUtils.OverwriteMasked(
                                         maskedDrawSource,
-                                        bmpCommitted,
+                                        bmpCommitted.AsGdipBitmap(),
                                         bmpBrushRotScaled,
                                         originPt,
                                         destPt,
@@ -2209,7 +2219,7 @@ namespace DynamicDraw
 
                                     DrawingUtils.OverwriteMasked(
                                         maskedDrawSource,
-                                        bmpCommitted,
+                                        bmpCommitted.AsGdipBitmap(),
                                         bmpBrushRotScaled,
                                         originPt,
                                         destPt,
@@ -2297,7 +2307,7 @@ namespace DynamicDraw
 
                                         DrawingUtils.OverwriteMasked(
                                             maskedDrawSource,
-                                            bmpCommitted,
+                                            bmpCommitted.AsGdipBitmap(),
                                             bmpBrushRotScaled,
                                             originPt,
                                             destPt,
@@ -2406,7 +2416,7 @@ namespace DynamicDraw
 
                                         DrawingUtils.OverwriteMasked(
                                             maskedDrawSource,
-                                            bmpCommitted,
+                                            bmpCommitted.AsGdipBitmap(),
                                             bmpBrushRotScaled,
                                             originPt,
                                             destPt,
@@ -2814,11 +2824,12 @@ namespace DynamicDraw
             int finalX = (int)Math.Round(rotatedLoc.X);
             int finalY = (int)Math.Round(rotatedLoc.Y);
 
+            RegionPtr<ColorBgra32> regionCommitted = bmpCommitted.AsRegionPtr();
             if (finalX >= 0 && finalY >= 0 &&
                 finalX <= bmpCommitted.Width - 1 &&
                 finalY <= bmpCommitted.Height - 1)
             {
-                Color pixel = bmpCommitted.GetPixel(finalX, finalY);
+                Color pixel = regionCommitted[finalX, finalY];
 
                 if (!UserSettings.ColorPickerIncludesAlpha)
                 {
@@ -3330,7 +3341,7 @@ namespace DynamicDraw
             //Configures a dialog to get the brush image(s) path(s).
             OpenFileDialog openFileDialog = new OpenFileDialog();
 
-            string defPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string defPath = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop);
             openFileDialog.InitialDirectory = importBrushImagesLastDirectory ?? defPath;
             openFileDialog.Multiselect = true;
             openFileDialog.Title = Strings.CustomBrushImagesDirectoryTitle;
@@ -5354,8 +5365,7 @@ namespace DynamicDraw
         /// </summary>
         private void InitSettings()
         {
-            InitialInitToken();
-            InitDialogFromToken();
+            Token = OnCreateInitialToken();
         }
 
         /// <summary>
@@ -5363,8 +5373,8 @@ namespace DynamicDraw
         /// </summary>
         private void MergeStaged()
         {
-            DrawingUtils.MergeImage(bmpStaged, bmpCommitted, bmpCommitted,
-                    bmpCommitted.GetBounds(),
+            DrawingUtils.MergeImage(bmpStaged, bmpCommitted.AsGdipBitmap(), bmpCommitted.AsGdipBitmap(),
+                    bmpCommitted.Bounds,
                     (BlendMode)cmbxBlendMode.SelectedIndex,
                     (chkbxLockAlpha.Checked,
                     chkbxLockR.Checked, chkbxLockG.Checked, chkbxLockB.Checked,
@@ -5394,12 +5404,12 @@ namespace DynamicDraw
             IUserFilesService userFilesService =
                 (IUserFilesService)Services.GetService(typeof(IUserFilesService));
 
-            string newPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "paint.net User Files", "DynamicDrawSettings.json");
+            string newPath = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "paint.net User Files", "DynamicDrawSettings.json");
             settings = new SettingsSerialization(newPath);
 
             if (!File.Exists(newPath))
             {
-                string oldestPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "paint.net User Files", "BrushFactorySettings.xml");
+                string oldestPath = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "paint.net User Files", "BrushFactorySettings.xml");
                 string oldPath = Path.Combine(userFilesService.UserFilesPath ?? "", "DynamicDrawSettings.xml");
 
                 // Migrates settings from the old settings filepath.
@@ -5488,7 +5498,7 @@ namespace DynamicDraw
                         contexts.Add(CommandContext.CloneStampOriginUnsetStage);
                     }
 
-                    DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                    DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                     break;
                 case Tool.Line:
                     contexts.Add(CommandContext.ToolLineToolActive);
@@ -5585,7 +5595,7 @@ namespace DynamicDraw
                                 clipboardImage.Height == bmpCommitted.Height))
                             {
                                 bmpBackgroundClipboard?.Dispose();
-                                bmpBackgroundClipboard = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, PixelFormat.Format32bppPArgb);
+                                bmpBackgroundClipboard = new Bitmap(bmpCommitted.Width, bmpCommitted.Height, GdipPixelFormat.Format32bppPArgb);
                                 using (Graphics graphics = Graphics.FromImage(bmpBackgroundClipboard))
                                 {
                                     graphics.CompositingMode = CompositingMode.SourceCopy;
@@ -5789,7 +5799,7 @@ namespace DynamicDraw
             {
                 // Applies the color and alpha changes.
                 bmpBrushEffects?.Dispose();
-                bmpBrushEffects = DrawingUtils.FormatImage(bmpBrushDownsized ?? bmpBrush, PixelFormat.Format32bppPArgb);
+                bmpBrushEffects = DrawingUtils.FormatImage(bmpBrushDownsized ?? bmpBrush, GdipPixelFormat.Format32bppPArgb);
 
                 // Replaces RGB entirely with the active color preemptive to drawing when possible, for performance.
                 if (chkbxColorizeBrush.Checked)
@@ -5820,7 +5830,7 @@ namespace DynamicDraw
             // Overwrite the hue and saturation of the new color from the wheel, if picking color from it.
             if (fromWheel)
             {
-                HsvColorF hsvCol = ColorUtils.HSVFFromBgra(newColor);
+                ColorHsv96Float hsvCol = ColorUtils.HSVFFromBgra(newColor);
                 hsvCol.Hue = wheelColor.HsvColor.Hue;
                 hsvCol.Saturation = wheelColor.HsvColor.Saturation;
 
@@ -5836,10 +5846,10 @@ namespace DynamicDraw
             }
             else
             {
-                HsvColorF hsvCol = ColorUtils.HSVFFromBgra(newColor);
-                wheelColor.HsvColor = new HsvColor(
-                    (int)Math.Round(hsvCol.Hue),
-                    (int)Math.Round(hsvCol.Saturation),
+                ColorHsv96Float hsvCol = ColorUtils.HSVFFromBgra(newColor);
+                wheelColor.HsvColor = new ColorHsv96Float(
+                    hsvCol.Hue,
+                    hsvCol.Saturation,
                     100);
             }
 
@@ -6069,8 +6079,8 @@ namespace DynamicDraw
                     shortcuts.Add(string.Format(Strings.ShortcutsOver3Tip, extraCount));
                 }
 
-                finalTooltip += $"{Environment.NewLine}{Environment.NewLine}{Strings.ShortcutsTooltipTip}";
-                finalTooltip += $"{Environment.NewLine}{string.Join(Environment.NewLine, shortcuts)}";
+                finalTooltip += $"{System.Environment.NewLine}{System.Environment.NewLine}{Strings.ShortcutsTooltipTip}";
+                finalTooltip += $"{System.Environment.NewLine}{string.Join(System.Environment.NewLine, shortcuts)}";
             }
 
             UpdateTooltip(finalTooltip);
@@ -6710,7 +6720,7 @@ namespace DynamicDraw
                     // If start and end are set, clears staged and draws the line.
                     if (lineOrigins.points.Count >= 2)
                     {
-                        DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                        DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                         DrawBrushLine(lineOrigins.points[0], lineOrigins.points[1]);
                     }
                 }
@@ -6882,7 +6892,7 @@ namespace DynamicDraw
                         else if (pt != ptNew)
                         {
                             lineOrigins.points[lineOrigins.dragIndex.Value] = ptNew;
-                            DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                            DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                             DrawBrushLine(lineOrigins.points[0], lineOrigins.points[1]);
                         }
                     }
@@ -6890,7 +6900,7 @@ namespace DynamicDraw
                     // Updates the preview while drawing.
                     else if (lineOrigins.points.Count == 1)
                     {
-                        DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                        DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                         DrawBrushLine(lineOrigins.points[0], new PointF(mouseLoc.X / canvasZoom, mouseLoc.Y / canvasZoom));
                     }
                 }
@@ -6922,7 +6932,7 @@ namespace DynamicDraw
             {
                 if (activeTool == Tool.CloneStamp)
                 {
-                    DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                    DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                 }
                 if (effectToDraw.Effect != null)
                 {
@@ -6985,8 +6995,8 @@ namespace DynamicDraw
             e.Graphics.SmoothingMode = SmoothingMode.None;
             e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
 
-            float drawingOffsetX = EnvironmentParameters.SourceSurface.Width * 0.5f * canvasZoom;
-            float drawingOffsetY = EnvironmentParameters.SourceSurface.Height * 0.5f * canvasZoom;
+            float drawingOffsetX = Environment.Document.Size.Width * 0.5f * canvasZoom;
+            float drawingOffsetY = Environment.Document.Size.Height * 0.5f * canvasZoom;
 
             e.Graphics.TranslateTransform(canvas.x + drawingOffsetX, canvas.y + drawingOffsetY);
             e.Graphics.RotateTransform(sliderCanvasAngle.ValueInt);
@@ -7031,8 +7041,8 @@ namespace DynamicDraw
                         visibleBounds,
                         lCutoffUnzoomed,
                         tCutoffUnzoomed,
-                        EnvironmentParameters.SourceSurface.Width - overshootX / canvasZoom - lCutoffUnzoomed,
-                        EnvironmentParameters.SourceSurface.Height - overshootY / canvasZoom - tCutoffUnzoomed,
+                        Environment.Document.Size.Width - overshootX / canvasZoom - lCutoffUnzoomed,
+                        Environment.Document.Size.Height - overshootY / canvasZoom - tCutoffUnzoomed,
                         GraphicsUnit.Pixel);
                 }
                 else
@@ -7060,12 +7070,12 @@ namespace DynamicDraw
             {
                 for (int i = mergeRegions.Count - 1; i >= 0; i--)
                 {
-                    Rectangle rect = Rectangle.Intersect(bmpCommitted.GetBounds(), mergeRegions[i]);
+                    Rectangle rect = Rectangle.Intersect(bmpCommitted.Bounds, mergeRegions[i]);
                     mergeRegions.RemoveAt(i);
 
                     if (rect.Width > 0 && rect.Height > 0)
                     {
-                        DrawingUtils.MergeImage(bmpStaged, bmpCommitted, bmpMerged,
+                        DrawingUtils.MergeImage(bmpStaged, bmpCommitted.AsGdipBitmap(), bmpMerged,
                             rect,
                             (BlendMode)cmbxBlendMode.SelectedIndex,
                             (chkbxLockAlpha.Checked,
@@ -7079,7 +7089,7 @@ namespace DynamicDraw
             Bitmap bmpToDraw =
                 isPreviewingEffect.settingsOpen || isPreviewingEffect.hoverPreview ||
                 (activeTool == Tool.Line && lineOrigins.points.Count >= 1) ? bmpStaged :
-                isUserDrawing.stagedChanged ? bmpMerged : bmpCommitted;
+                isUserDrawing.stagedChanged ? bmpMerged : bmpCommitted.AsGdipBitmap();
 
             if (sliderCanvasAngle.ValueInt == 0)
             {
@@ -7088,8 +7098,8 @@ namespace DynamicDraw
                     visibleBounds,
                     lCutoffUnzoomed,
                     tCutoffUnzoomed,
-                    EnvironmentParameters.SourceSurface.Width - overshootX / canvasZoom - lCutoffUnzoomed,
-                    EnvironmentParameters.SourceSurface.Height - overshootY / canvasZoom - tCutoffUnzoomed,
+                    Environment.Document.Size.Width - overshootX / canvasZoom - lCutoffUnzoomed,
+                    Environment.Document.Size.Height - overshootY / canvasZoom - tCutoffUnzoomed,
                     GraphicsUnit.Pixel);
             }
             else
@@ -7099,21 +7109,21 @@ namespace DynamicDraw
             #endregion
 
             #region Draws the selection
-            PdnRegion selection = EnvironmentParameters.GetSelectionAsPdnRegion();
-            Region selectionRegion = selection?.GetRegionReadOnly();
-
+            using PdnRegion selection = PdnRegion.FromRectangles(Environment.Selection.RenderScans);
+            Region selectionRegion = selection.GetRegionReadOnly();
+            
             long area = selection.GetArea64();
             if (selectionRegion != null)
             {
                 //Calculates the outline once the selection becomes valid.
                 if (selectionOutline == null)
                 {
-                    if (area != EnvironmentParameters.SourceSurface.Width * EnvironmentParameters.SourceSurface.Height)
+                    if (area != Environment.Document.Size.Area)
                     {
                         selectionOutline = selection.ConstructOutline(
                             new RectangleF(0, 0,
-                            EnvironmentParameters.SourceSurface.Width,
-                            EnvironmentParameters.SourceSurface.Height),
+                            Environment.Document.Size.Width,
+                            Environment.Document.Size.Height),
                             canvasZoom);
                     }
                 }
@@ -7123,7 +7133,7 @@ namespace DynamicDraw
 
                 //Creates the inverted region of the selection.
                 using var drawingArea = new Region(new Rectangle
-                    (0, 0, EnvironmentParameters.SourceSurface.Width, EnvironmentParameters.SourceSurface.Height));
+                    (0, 0, Environment.Document.Size.Width, Environment.Document.Size.Height));
                 drawingArea.Exclude(selectionRegion);
 
                 //Draws the region as a darkening over unselected pixels.
@@ -7223,11 +7233,11 @@ namespace DynamicDraw
                         e.Graphics.DrawLine(
                             Pens.Red,
                             new PointF(0, symmetryOrigin.Y * canvasZoom),
-                            new PointF(EnvironmentParameters.SourceSurface.Width * canvasZoom, symmetryOrigin.Y * canvasZoom));
+                            new PointF(Environment.Document.Size.Width * canvasZoom, symmetryOrigin.Y * canvasZoom));
                         e.Graphics.DrawLine(
                             Pens.Red,
                             new PointF(symmetryOrigin.X * canvasZoom, 0),
-                            new PointF(symmetryOrigin.X * canvasZoom, EnvironmentParameters.SourceSurface.Height * canvasZoom));
+                            new PointF(symmetryOrigin.X * canvasZoom, Environment.Document.Size.Height * canvasZoom));
                     }
 
                     e.Graphics.ScaleTransform(canvasZoom, canvasZoom);
@@ -7275,8 +7285,8 @@ namespace DynamicDraw
                         }
                         else
                         {
-                            pointsDrawnX = (mouseLoc.X / canvasZoom - EnvironmentParameters.SourceSurface.Width / 2);
-                            pointsDrawnY = (mouseLoc.Y / canvasZoom - EnvironmentParameters.SourceSurface.Height / 2);
+                            pointsDrawnX = (mouseLoc.X / canvasZoom - Environment.Document.Size.Width / 2);
+                            pointsDrawnY = (mouseLoc.Y / canvasZoom - Environment.Document.Size.Height / 2);
 
                             for (int i = 0; i < symmetryOrigins.Count; i++)
                             {
@@ -7287,8 +7297,8 @@ namespace DynamicDraw
                                 angle -= sliderCanvasAngle.ValueInt * Math.PI / 180;
                                 e.Graphics.DrawRectangle(
                                     Pens.Red,
-                                    (float)(EnvironmentParameters.SourceSurface.Width / 2 + dist * Math.Cos(angle) - 1),
-                                    (float)(EnvironmentParameters.SourceSurface.Height / 2 + dist * Math.Sin(angle) - 1),
+                                    (float)(Environment.Document.Size.Width / 2 + dist * Math.Cos(angle) - 1),
+                                    (float)(Environment.Document.Size.Height / 2 + dist * Math.Sin(angle) - 1),
                                     2, 2);
                             }
                         }
@@ -7301,11 +7311,11 @@ namespace DynamicDraw
                     e.Graphics.DrawLine(
                         Pens.Red,
                         new PointF(0, symmetryOrigin.Y * canvasZoom),
-                        new PointF(EnvironmentParameters.SourceSurface.Width * canvasZoom, symmetryOrigin.Y * canvasZoom));
+                        new PointF(Environment.Document.Size.Width * canvasZoom, symmetryOrigin.Y * canvasZoom));
                     e.Graphics.DrawLine(
                         Pens.Red,
                         new PointF(symmetryOrigin.X * canvasZoom, 0),
-                        new PointF(symmetryOrigin.X * canvasZoom, EnvironmentParameters.SourceSurface.Height * canvasZoom));
+                        new PointF(symmetryOrigin.X * canvasZoom, Environment.Document.Size.Height * canvasZoom));
                 }
             }
             #endregion
@@ -7653,9 +7663,13 @@ namespace DynamicDraw
                 new Rectangle(2, e.Bounds.Top, e.Bounds.Width, e.Bounds.Height));
 
             //Draws the image of the current item to be repainted.
-            if (effect.Item2 != null && effect.Item2.Image != null)
+            if (effect.Item2 != null)
             {
-                e.Graphics.DrawImage(effect.Item2.Image, pictureLocation);
+                Image effectImage = effect.Item2.GetImageAsImage();
+                if (effectImage != null)
+                {
+                    e.Graphics.DrawImage(effectImage, pictureLocation);
+                }
             }
 
             int textPosition = (effect.Item2 == null)
@@ -7784,12 +7798,12 @@ namespace DynamicDraw
             //Sets the bitmap to draw. Locks to prevent concurrency.
             lock (RenderSettings.SurfaceToRender)
             {
-                RenderSettings.SurfaceToRender = Surface.CopyFromBitmap(bmpCommitted);
+                RenderSettings.SurfaceToRender = Surface.CopyFromBitmap(bmpCommitted.AsGdipBitmap());
             }
 
             //Updates the saved effect settings and OKs the effect.
             RenderSettings.DoApplyEffect = true;
-            FinishTokenUpdate();
+            UpdateTokenFromDialog();
 
             Close();
         }
@@ -7836,14 +7850,14 @@ namespace DynamicDraw
             {
                 //Saves the drawing to the file for undo.
                 string path = tempDir.GetTempPathName("HistoryBmp" + undoHistory.Count + ".undo");
-                bmpCommitted.Save(path);
+                bmpCommitted.AsGdipBitmap().Save(path);
                 undoHistory.Push(path);
 
                 //Clears the current drawing (in case parts are transparent),
                 //and draws the saved version.
                 using (Bitmap redoBmp = new Bitmap(fileAndPath))
                 {
-                    DrawingUtils.OverwriteBits(redoBmp, bmpCommitted);
+                    DrawingUtils.OverwriteBits(redoBmp, bmpCommitted.AsGdipBitmap());
 
                     if (effectToDraw.Effect == null && activeTool != Tool.CloneStamp)
                     {
@@ -7853,7 +7867,7 @@ namespace DynamicDraw
                     {
                         if (activeTool == Tool.CloneStamp)
                         {
-                            DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                            DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                         }
                         if (effectToDraw.Effect != null)
                         {
@@ -8069,14 +8083,14 @@ namespace DynamicDraw
             {
                 //Saves the drawing to the file for redo.
                 string path = tempDir.GetTempPathName("HistoryBmp" + redoHistory.Count + ".redo");
-                bmpCommitted.Save(path);
+                bmpCommitted.AsGdipBitmap().Save(path);
                 redoHistory.Push(path);
 
                 //Clears the current drawing (in case parts are transparent),
                 //and draws the saved version.
                 using (Bitmap undoBmp = new Bitmap(fileAndPath))
                 {
-                    DrawingUtils.OverwriteBits(undoBmp, bmpCommitted);
+                    DrawingUtils.OverwriteBits(undoBmp, bmpCommitted.AsGdipBitmap());
 
                     if (effectToDraw.Effect == null && activeTool != Tool.CloneStamp)
                     {
@@ -8086,7 +8100,7 @@ namespace DynamicDraw
                     {
                         if (activeTool == Tool.CloneStamp)
                         {
-                            DrawingUtils.OverwriteBits(bmpCommitted, bmpStaged);
+                            DrawingUtils.OverwriteBits(bmpCommitted.AsGdipBitmap(), bmpStaged);
                         }
                         if (effectToDraw.Effect != null)
                         {
@@ -8240,12 +8254,12 @@ namespace DynamicDraw
         private void CmbxTabPressure_MouseHover(object sender, EventArgs e)
         {
             UpdateTooltip(
-                Strings.ValueInfluenceTip + Environment.NewLine + Environment.NewLine
-                + Strings.ValueTypeNothingTip + Environment.NewLine
-                + Strings.ValueTypeAddTip + Environment.NewLine
-                + Strings.ValueTypeAddPercentTip + Environment.NewLine
-                + Strings.ValueTypeAddPercentCurrentTip + Environment.NewLine
-                + Strings.ValueTypeMatchValueTip + Environment.NewLine
+                Strings.ValueInfluenceTip + System.Environment.NewLine + System.Environment.NewLine
+                + Strings.ValueTypeNothingTip + System.Environment.NewLine
+                + Strings.ValueTypeAddTip + System.Environment.NewLine
+                + Strings.ValueTypeAddPercentTip + System.Environment.NewLine
+                + Strings.ValueTypeAddPercentCurrentTip + System.Environment.NewLine
+                + Strings.ValueTypeMatchValueTip + System.Environment.NewLine
                 + Strings.ValueTypeMatchPercentTip);
         }
 
@@ -8281,7 +8295,7 @@ namespace DynamicDraw
 
                 BrushSelectorItem brushImage = loadedBrushImages[itemIndex];
                 string name = brushImage.Name;
-                string tooltipText = name + Environment.NewLine + brushImage.BrushWidth + "x" + brushImage.BrushHeight + Environment.NewLine;
+                string tooltipText = name + System.Environment.NewLine + brushImage.BrushWidth + "x" + brushImage.BrushHeight + System.Environment.NewLine;
 
                 tooltipText += !string.IsNullOrEmpty(brushImage.Location)
                     ? brushImage.Location
@@ -8385,11 +8399,11 @@ namespace DynamicDraw
 
                 if (!string.IsNullOrEmpty(brush.Location))
                 {
-                    tooltipText = name + Environment.NewLine + brush.BrushWidth + 'x' + brush.BrushHeight + Environment.NewLine + brush.Location;
+                    tooltipText = name + System.Environment.NewLine + brush.BrushWidth + 'x' + brush.BrushHeight + System.Environment.NewLine + brush.Location;
                 }
                 else
                 {
-                    tooltipText = name + Environment.NewLine + brush.BrushWidth + 'x' + brush.BrushHeight + Environment.NewLine + Strings.BuiltIn;
+                    tooltipText = name + System.Environment.NewLine + brush.BrushWidth + 'x' + brush.BrushHeight + System.Environment.NewLine + Strings.BuiltIn;
                 }
 
                 e.Item = new ListViewItem
@@ -8436,7 +8450,7 @@ namespace DynamicDraw
                     bmpBrush?.Dispose();
                     bmpBrush = DrawingUtils.FormatImage(
                         currentItem.Brush,
-                        PixelFormat.Format32bppPArgb);
+                        GdipPixelFormat.Format32bppPArgb);
                     bmpBrushDownsized = null;
 
                     UpdateBrushImage();
